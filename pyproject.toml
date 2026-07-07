@@ -1,0 +1,53 @@
+[project]
+name = "telegram-export-kit"
+version = "0.1.0"
+description = "Local-first CLI toolkit for Telegram conversation exports."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "jinja2>=3.1.6",
+  "orjson>=3.11.5",
+  "pydantic>=2.12.0",
+  "python-dotenv>=1.2.0",
+  "rich>=14.0.0",
+  "telethon>=1.41.0,<2",
+  "typer>=0.19.0",
+]
+
+[project.scripts]
+tg-export = "telegram_export_kit.cli:app"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.18.0",
+  "pytest>=8.4.0",
+  "pytest-asyncio>=1.2.0",
+  "ruff>=0.14.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.25,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "telegram_export_kit"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = ["telethon", "telethon.*"]
+ignore_missing_imports = true
