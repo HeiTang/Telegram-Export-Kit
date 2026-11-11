@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
+from telegram_export_kit.jsonl import write_json
 from telegram_export_kit.manifest_writer import read_manifest, write_export_manifest
 from telegram_export_kit.models import ChatRecord, ExportOptions, SenderRecord
 
@@ -107,3 +110,11 @@ def test_write_export_manifest_preserves_existing_identity_and_appends_runs(
         "written": 0,
         "skipped_existing": 1,
     }
+
+
+def test_failed_json_serialization_preserves_existing_manifest(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.json"
+    path.write_text('{"original":true}')
+    with pytest.raises(TypeError):
+        write_json(path, object())
+    assert path.read_text() == '{"original":true}'

@@ -236,7 +236,7 @@ def test_doctor_reports_unindexed_exports(tmp_path: Path) -> None:
     assert "unindexed_export" in {issue.code for issue in result.issues}
 
 
-def test_doctor_reports_same_path_key_with_different_criteria(tmp_path: Path) -> None:
+def test_doctor_allows_separate_exports_with_same_path_key(tmp_path: Path) -> None:
     first = _write_export(
         tmp_path,
         "chat__all/2026-01-01",
@@ -264,8 +264,8 @@ def test_doctor_reports_same_path_key_with_different_criteria(tmp_path: Path) ->
 
     result = doctor_export_index(tmp_path)
 
-    assert not result.ok
-    assert "path_key_criteria_conflict" in {issue.code for issue in result.issues}
+    assert result.ok
+    assert result.issues == []
 
 
 def test_resolve_export_messages_path_supports_latest_and_stable_export_id(

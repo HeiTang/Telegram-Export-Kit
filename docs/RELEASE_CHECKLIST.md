@@ -77,6 +77,26 @@ Expected behavior:
 - `--overwrite` reuses the same export ID and rebuilds payload
 - `--new` creates a sibling export path
 
+## Offline Integrity Regression
+
+```bash
+uv run pytest tests/test_export_integrity.py
+```
+
+This uses a fake Telegram gateway and temporary data to exercise the real CLI,
+planner, exporter, registry, search, verifier, and renderers. It covers:
+
+- flat-directory collisions, unidentified payload, and mixed-chat detection
+- zero-message exports and archive counts after source messages disappear
+- failed scans/downloads, invalid replacements, switch rollback, and successful overwrite
+- interrupted overwrite detection and exclusion of recovery directories from indexes
+- flat `--new`, moving the export root, and rediscovery by original ID after index rebuild
+
+Passing these checks does not replace the real-account manual regression above.
+For installation acceptance, build a wheel, install it into a clean virtual
+environment, and run the CLI smoke commands outside the repository. Do not
+count a source-tree or editable install as a clean-install check.
+
 ## Documentation
 
 - README examples match the current CLI.

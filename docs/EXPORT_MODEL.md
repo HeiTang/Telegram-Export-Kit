@@ -168,8 +168,52 @@ For the same `criteria_hash`:
 | --- | --- |
 | default | Stop and show existing ID/path. |
 | `--update` | Reuse ID/path and resume non-destructively. |
-| `--overwrite` | Reuse ID/path and rebuild payload destructively. |
+| `--overwrite` | Reuse ID/path, verify a staged replacement, then replace payload. |
 | `--new` | Create a new ID and sibling path. |
 
 For the same `path_key` but different `criteria_hash`, the default is to stop.
 Use `--new` when you intentionally want a sibling export.
+
+The physical destination is checked independently of these hashes. A directory
+with payload but no valid matching manifest is rejected rather than resumed.
+With `--flat --new`, the new directory is `--out/export__ID`, keeping it inside
+the registry root. Different export IDs may intentionally have identical
+criteria or share a path key; `exports doctor` accepts these separate exports.
+
+## Counts And Empty Exports
+
+`stats.selected` is the number of messages actually saved in `messages.jsonl`.
+Each `runs[].stats.selected` is the selection count for that particular scan.
+`--update` retains saved messages that disappeared from Telegram; it does not
+sync deletions or edits. Export command output uses `selected` for the scan and
+`message_count` for saved rows. An empty `messages.jsonl` is a valid zero-message
+export and remains available to list, search, verify, and render.
+
+## Overwrite Recovery
+
+`--overwrite` builds inside a temporary `.overwrite-*` directory on the same
+filesystem. It preserves the export ID, UUID, creation time, and run history.
+Only a verified replacement is installed; old payload is held in
+`.overwrite-backup` during the switch. Ordinary scan, media, and switch errors
+leave the original export intact or roll back to it. Rendered HTML and Markdown
+are not regenerated automatically; rerun render after a successful overwrite.
+
+Run only one writer per export. This is not a power-loss durability guarantee.
+After forced termination, a remaining `.overwrite-backup` blocks further
+writes and makes `verify` fail. Index rebuilding ignores `.overwrite-*`
+directories so recovery files never become independent exports.
+
+To recover without destroying either version:
+
+1. Stop processes using the export and copy the entire export directory outside
+   the exports root, including hidden `.overwrite-*` directories.
+2. In the recovery copy, move `.overwrite-backup` and any `.overwrite-*` temporary
+   directories outside the copy. Run `tg-export verify RECOVERY_COPY`.
+3. If verification succeeds, the current payload is consistent. Otherwise,
+   restore each payload entry present in the saved backup (`messages.jsonl`,
+   `assets`, `manifest.json`) into the recovery copy, first moving the entry it
+   replaces elsewhere. Leave payload entries absent from the backup untouched:
+   termination may have happened before they were moved. Verify again.
+4. Only use a recovery copy that passes verification. Keep the original and
+   backup until recovery is confirmed, then rebuild the registry index for the
+   chosen export root. If neither version verifies, preserve both for diagnosis.

@@ -23,6 +23,7 @@ def write_export_manifest(
     target_record: SenderRecord | None,
     mode: ExportMode,
     stats: dict[str, int],
+    message_count: int | None = None,
 ) -> ExportManifest:
     previous_manifest = read_manifest(path)
     now = datetime.now(UTC)
@@ -50,7 +51,7 @@ def write_export_manifest(
         source=options.source,
         path_key=options.path_key,
         criteria_hash=options.criteria_hash,
-        stats=stats,
+        stats=stats if message_count is None else {**stats, "selected": message_count},
         runs=[*(previous_manifest.runs if previous_manifest else []), run],
     )
     write_json(path, manifest)

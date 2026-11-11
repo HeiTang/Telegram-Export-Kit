@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Literal
 
 from telegram_export_kit.export_index import (
@@ -15,8 +18,10 @@ from telegram_export_kit.export_index import (
     find_exports_by_path_key,
     generate_export_identity,
 )
+from telegram_export_kit.manifest_writer import read_manifest
 from telegram_export_kit.models import ChatRecord, SenderRecord
 from telegram_export_kit.utils import safe_filename
+from telegram_export_kit.verify import verify_export
 
 ExportMode = Literal["private", "group_slice", "full_chat"]
 
@@ -119,7 +124,32 @@ def plan_export(
         if collisions and not dry_run:
             raise PathCollisionError(collisions)
     else:
-        out_dir = unique_export_dir(out_dir, export_id)
+        out_dir = unique_export_dir(out / "export" if flat else out_dir, export_id)
+
+    if not dry_run:
+        if (out_dir / ".overwrite-backup").exists():
+            raise ExportPlanError(
+                f"Unfinished overwrite: recover {out_dir / '.overwrite-backup'} first."
+            )
+        payload_exists = any((out_dir / name).exists() for name in PAYLOAD_NAMES)
+        if payload_exists:
+            try:
+                manifest = read_manifest(out_dir / "manifest.json")
+            except (ValueError, OSError) as exc:
+                raise ExportPlanError(
+                    f"Cannot identify existing export at {out_dir}: {exc}"
+                ) from exc
+            if (
+                manifest is None
+                or manifest.id != export_id
+                or manifest.uuid != export_uuid
+                or manifest.criteria_hash != criteria_hash
+                or manifest.chat.id != chat_record.id
+            ):
+                raise ExportPlanError(
+                    f"Destination already contains a different or unidentified export: {out_dir}. "
+                    "Use a different --out or --new; existing data was not changed."
+                )
 
     return ExportPlan(
         export_id=export_id,
@@ -206,14 +236,44 @@ def unique_export_dir(base: Path, export_id: str) -> Path:
         counter += 1
 
 
-def reset_export_payload(out_dir: Path) -> None:
-    for name in ["messages.jsonl", "manifest.json"]:
-        path = out_dir / name
-        if path.exists():
-            path.unlink()
-    assets_dir = out_dir / "assets"
-    if assets_dir.exists():
-        shutil.rmtree(assets_dir)
+PAYLOAD_NAMES = ("messages.jsonl", "assets", "manifest.json")
+
+
+@contextmanager
+def staged_overwrite(out_dir: Path) -> Iterator[Path]:
+    backup = out_dir / ".overwrite-backup"
+    if backup.exists():
+        raise ExportPlanError(f"Unfinished overwrite: recover {backup} first.")
+    # shortcut: one writer per export; add locking before supporting concurrent exports.
+    with TemporaryDirectory(prefix=".overwrite-", dir=out_dir) as temporary:
+        staging = Path(temporary)
+        shutil.copy2(out_dir / "manifest.json", staging / "manifest.json")
+        yield staging
+        result = verify_export(staging)
+        if not result.ok:
+            codes = ", ".join(issue.code for issue in result.issues if issue.severity == "error")
+            raise ExportPlanError(f"Replacement failed verification: {codes}. Old export retained.")
+
+        backup.mkdir()
+        saved: list[str] = []
+        installed: list[str] = []
+        try:
+            for name in PAYLOAD_NAMES:
+                original = out_dir / name
+                if original.exists():
+                    original.replace(backup / name)
+                    saved.append(name)
+            for name in PAYLOAD_NAMES:
+                (staging / name).replace(out_dir / name)
+                installed.append(name)
+        except BaseException:
+            for name in reversed(installed):
+                (out_dir / name).replace(staging / name)
+            for name in reversed(saved):
+                (backup / name).replace(out_dir / name)
+            backup.rmdir()
+            raise
+        shutil.rmtree(backup)
 
 
 def source_payload(

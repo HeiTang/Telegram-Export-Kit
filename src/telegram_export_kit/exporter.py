@@ -25,6 +25,7 @@ class ExportResult:
     out_dir: Path
     total_seen: int
     selected: int
+    message_count: int
     written: int
     media_updated: int
     skipped_existing: int
@@ -85,6 +86,13 @@ async def export_chat(
     messages_path = options.out_dir / "messages.jsonl"
     assets_dir = options.out_dir / "assets"
     previous_messages = existing_messages(messages_path) if options.resume else {}
+    for previous_record in previous_messages.values():
+        previous_chat = previous_record.get("chat")
+        if not isinstance(previous_chat, dict) or previous_chat.get("id") != chat_record.id:
+            raise ValueError(
+                "Existing messages have a different or invalid chat; "
+                "use a different output directory."
+            )
     existing_ids = set(previous_messages)
     selected_total = selection.selected_count
 
@@ -105,6 +113,7 @@ async def export_chat(
     if not options.dry_run:
         options.out_dir.mkdir(parents=True, exist_ok=True)
         assets_dir.mkdir(parents=True, exist_ok=True)
+        messages_path.touch(exist_ok=True)
 
     for position, index in enumerate(sorted(selection.selected_indexes), start=1):
         message = messages[index]
@@ -202,6 +211,7 @@ async def export_chat(
         "target_messages": selection.target_count,
     }
 
+    message_count = len(existing_ids) + written
     if not options.dry_run:
         write_export_manifest(
             options.out_dir / "manifest.json",
@@ -210,6 +220,7 @@ async def export_chat(
             target_record=target_record,
             mode=selection.mode,
             stats=stats,
+            message_count=message_count,
         )
 
     _emit(progress, "complete", stats)
@@ -218,6 +229,7 @@ async def export_chat(
         out_dir=options.out_dir,
         total_seen=len(messages),
         selected=selection.selected_count,
+        message_count=message_count,
         written=written,
         media_updated=media_updated,
         skipped_existing=skipped_existing,

@@ -266,7 +266,7 @@ Pick one explicit action:
 # Resume non-destructively: skip existing ids and fill missing media.
 uv run tg-export export --chat project_group --sender alice --date 2026-07-01 --update
 
-# Rebuild in place: keep the same export ID but clear and recreate payload.
+# Rebuild safely: verify replacement data before replacing the old payload.
 uv run tg-export export --chat project_group --sender alice --date 2026-07-01 --overwrite
 
 # Create a sibling export with a new ID.
@@ -274,6 +274,19 @@ uv run tg-export export --chat project_group --sender alice --date 2026-07-01 --
 ```
 
 Use `--update` first unless you intentionally want a clean rebuild.
+
+Updates retain previously saved messages even if they disappear from Telegram.
+The manifest's `stats.selected` and export list show the saved message count;
+each entry in `runs` records that run's selection count. Zero-message exports
+remain valid and searchable.
+
+Existing output directories must belong to the same export, including with
+`--flat`. `--flat --new` creates an `export__ID` subdirectory inside `--out`, so
+moving the root and rebuilding its index keeps both exports discoverable.
+
+`--overwrite` keeps the old payload until the replacement passes verification.
+Run only one writer per export. For recovery after a forced termination, see
+[Overwrite Recovery](docs/EXPORT_MODEL.md#overwrite-recovery).
 
 ## Output Layout
 

@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -149,9 +151,11 @@ def test_export_command_passes_action_flags_to_plan(
     assert captured_options["resume"] is True
     assert captured_options["export_id"] == "abc12345"
     assert captured_upsert["export_id"] == "abc12345"
+    assert captured_upsert["message_count"] == 3
+    assert captured_upsert["path"] == tmp_path / "planned"
 
 
-def test_export_command_overwrite_resets_payload(
+def test_export_command_overwrite_uses_staging(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -364,6 +368,7 @@ def _install_export_command_fakes(
             out_dir=out_dir,
             total_seen=10,
             selected=2,
+            message_count=3,
             written=2,
             media_updated=0,
             skipped_existing=0,
@@ -376,14 +381,16 @@ def _install_export_command_fakes(
         captured_upsert.update(kwargs)
         return None
 
-    def fake_reset_export_payload(out_dir: Path) -> None:
+    @contextmanager
+    def fake_staged_overwrite(out_dir: Path) -> Iterator[Path]:
         if capture_reset is not None:
             capture_reset["out_dir"] = out_dir
+        yield out_dir / "staging"
 
     monkeypatch.setattr(cli, "plan_export", fake_plan_export)
     monkeypatch.setattr(cli, "export_chat", fake_export_chat)
     monkeypatch.setattr(cli, "upsert_export_record", fake_upsert_export_record)
-    monkeypatch.setattr(cli, "reset_export_payload", fake_reset_export_payload)
+    monkeypatch.setattr(cli, "staged_overwrite", fake_staged_overwrite)
 
 
 def _export_options_payload(options: ExportOptions) -> dict[str, object]:

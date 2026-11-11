@@ -52,9 +52,9 @@ Exports a private chat, a whole group, or group context slices.
 | `--no-media` | No | `false` | Do not download images or files. |
 | `--dry-run` | No | `false` | Count matching messages without writing output. |
 | `--no-resume` | No | `false` | Ignore existing `messages.jsonl` and do not skip already-exported ids. |
-| `--flat` | No | `false` | Write directly into `--out` instead of creating a scoped subdirectory. |
+| `--flat` | No | `false` | Write directly into `--out`; with `--new`, create an `export__ID` child instead. |
 | `--update` | No | `false` | Reuse the same export ID and non-destructively resume an existing export with identical criteria. |
-| `--overwrite` | No | `false` | Reuse the same export ID and destructively rebuild an existing export with identical criteria. |
+| `--overwrite` | No | `false` | Reuse the same export ID; verify replacement data before replacing the existing payload. |
 | `--new` | No | `false` | Force a new export ID and sibling directory when criteria or path would collide. |
 | `--env-file PATH` | No | `.env` | Load Telegram credentials from this env file. |
 

@@ -124,8 +124,6 @@ def doctor_export_index(root: Path = Path("exports")) -> ExportIndexDoctorResult
     issues: list[ExportIndexIssue] = []
     seen_ids: set[str] = set()
     seen_uuids: set[str] = set()
-    seen_criteria: dict[str, Path] = {}
-    criteria_by_path_key: dict[str, set[str]] = {}
     indexed_dirs: set[Path] = set()
 
     for record in records:
@@ -184,37 +182,15 @@ def doctor_export_index(root: Path = Path("exports")) -> ExportIndexDoctorResult
         if entry.uuid:
             seen_uuids.add(entry.uuid)
 
-        if entry.criteria_hash:
-            previous = seen_criteria.get(entry.criteria_hash)
-            if previous is not None:
-                issues.append(
-                    ExportIndexIssue(
-                        severity="error",
-                        code="duplicate_criteria",
-                        message=f"duplicate criteria_hash with {previous}",
-                        path=entry.root_dir,
-                    )
-                )
-            seen_criteria[entry.criteria_hash] = entry.root_dir
-
-        if entry.path_key and entry.criteria_hash:
-            criteria_by_path_key.setdefault(entry.path_key, set()).add(entry.criteria_hash)
-
         if manifest:
             _append_manifest_identity_issues(manifest, entry.root_dir, issues)
             _append_index_manifest_mismatches(record, manifest, entry.root_dir, issues)
 
-    for path_key, criteria in criteria_by_path_key.items():
-        if len(criteria) > 1:
-            issues.append(
-                ExportIndexIssue(
-                    severity="error",
-                    code="path_key_criteria_conflict",
-                    message=f"path_key has multiple criteria_hash values: {path_key}",
-                )
-            )
-
     for messages_path in sorted(root.glob("**/messages.jsonl")):
+        if any(
+            part.startswith(".overwrite-") for part in messages_path.relative_to(root).parts[:-1]
+        ):
+            continue
         export_dir = messages_path.parent
         if export_dir not in indexed_dirs:
             issues.append(
@@ -362,6 +338,10 @@ def _bootstrap_records(root: Path) -> list[dict[str, Any]]:
         return []
     records: list[dict[str, Any]] = []
     for messages_path in sorted(root.glob("**/messages.jsonl")):
+        if any(
+            part.startswith(".overwrite-") for part in messages_path.relative_to(root).parts[:-1]
+        ):
+            continue
         root_dir = messages_path.parent
         manifest = _read_manifest(root_dir)
         sort_time = _sort_time(root_dir, manifest).isoformat()
