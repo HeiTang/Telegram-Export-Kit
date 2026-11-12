@@ -280,3 +280,37 @@ def test_flat_new_remains_discoverable_after_move_and_index_rebuild(
             )
             assert result.exit_code == 0, (result.output, result.exception)
     assert runner.invoke(cli.app, ["exports", "doctor", "--root", str(moved)]).exit_code == 0
+
+
+@pytest.mark.parametrize("reference", ["chat", "sender"])
+@pytest.mark.parametrize("action", ["--update", "--overwrite", "--new"])
+def test_export_rejects_reference_changes_after_planning(
+    tmp_path: Path,
+    gateway: ConnectedFakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+    reference: str,
+    action: str,
+) -> None:
+    flags = ["--flat"]
+    if reference == "sender":
+        flags += ["--sender", "target", "--window-before", "0", "--window-after", "0"]
+    export(tmp_path, *flags)
+    before = payload(tmp_path)
+    calls = 0
+
+    async def resolve(value: str) -> object:
+        nonlocal calls
+        calls += 1
+        entity = gateway.chat if reference == "chat" else gateway.user
+        if calls == 2:
+            entity.id += 1
+        return entity
+
+    monkeypatch.setattr(gateway, "resolve_chat" if reference == "chat" else "resolve_user", resolve)
+    result = runner.invoke(
+        cli.app,
+        ["export", "--chat", "group", action, "--no-media", "--out", str(tmp_path), *flags],
+    )
+    assert result.exit_code == 1
+    assert "changed since planning" in result.output
+    assert payload(tmp_path) == before

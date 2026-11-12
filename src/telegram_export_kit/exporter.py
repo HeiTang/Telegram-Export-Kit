@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from telegram_export_kit.export_index import build_criteria_hash
 from telegram_export_kit.gateway import TelegramGateway
 from telegram_export_kit.jsonl import append_jsonl
 from telegram_export_kit.manifest_writer import write_export_manifest
@@ -82,6 +83,18 @@ async def export_chat(
         window_before=options.window_before,
         window_after=options.window_after,
     )
+
+    actual_criteria = build_criteria_hash(
+        chat_id=chat_record.id,
+        target_id=target_sender_id,
+        mode=selection.mode,
+        since=options.since,
+        until=options.until,
+        window_before=options.window_before,
+        window_after=options.window_after,
+    )
+    if options.criteria_hash is not None and options.criteria_hash != actual_criteria:
+        raise ValueError("Export criteria changed since planning; existing data was not changed.")
 
     messages_path = options.out_dir / "messages.jsonl"
     assets_dir = options.out_dir / "assets"
