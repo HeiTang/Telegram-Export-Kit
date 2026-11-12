@@ -34,8 +34,10 @@ def append_jsonl(path: Path, value: Any) -> None:
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as fh:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with tmp_path.open("wb") as fh:
         fh.write(dumps_line(value).rstrip(b"\n"))
+    tmp_path.replace(path)
 
 
 def write_jsonl(path: Path, values: Iterable[Any]) -> None:

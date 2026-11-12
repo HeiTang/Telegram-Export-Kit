@@ -1,10 +1,13 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 import typer
+from rich.text import Text
 from typer.testing import CliRunner
 
 from telegram_export_kit import cli
@@ -149,9 +152,11 @@ def test_export_command_passes_action_flags_to_plan(
     assert captured_options["resume"] is True
     assert captured_options["export_id"] == "abc12345"
     assert captured_upsert["export_id"] == "abc12345"
+    assert captured_upsert["message_count"] == 3
+    assert captured_upsert["path"] == tmp_path / "planned"
 
 
-def test_export_command_overwrite_resets_payload(
+def test_export_command_overwrite_uses_staging(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -190,7 +195,9 @@ def test_export_command_rejects_multiple_existing_export_actions(
     )
 
     assert result.exit_code != 0
-    assert "Use only one of: --update, --overwrite, or --new." in result.output
+    assert "Use only one of: --update, --overwrite, or --new." in Text.from_ansi(
+        result.output
+    ).plain
 
 
 def test_export_command_existing_export_error_includes_id_and_path(
@@ -281,7 +288,9 @@ def test_render_rejects_multiple_input_selectors(tmp_path: Path) -> None:
     )
 
     assert result.exit_code != 0
-    assert "Provide exactly one of: INPUT_PATH, --latest, or --export." in result.output
+    assert "Provide exactly one of: INPUT_PATH, --latest, or --export." in Text.from_ansi(
+        result.output
+    ).plain
 
 
 def _write_renderable_export(root: Path, *, export_id: str) -> Path:
@@ -364,6 +373,7 @@ def _install_export_command_fakes(
             out_dir=out_dir,
             total_seen=10,
             selected=2,
+            message_count=3,
             written=2,
             media_updated=0,
             skipped_existing=0,
@@ -376,14 +386,16 @@ def _install_export_command_fakes(
         captured_upsert.update(kwargs)
         return None
 
-    def fake_reset_export_payload(out_dir: Path) -> None:
+    @contextmanager
+    def fake_staged_overwrite(out_dir: Path) -> Iterator[Path]:
         if capture_reset is not None:
             capture_reset["out_dir"] = out_dir
+        yield out_dir / "staging"
 
     monkeypatch.setattr(cli, "plan_export", fake_plan_export)
     monkeypatch.setattr(cli, "export_chat", fake_export_chat)
     monkeypatch.setattr(cli, "upsert_export_record", fake_upsert_export_record)
-    monkeypatch.setattr(cli, "reset_export_payload", fake_reset_export_payload)
+    monkeypatch.setattr(cli, "staged_overwrite", fake_staged_overwrite)
 
 
 def _export_options_payload(options: ExportOptions) -> dict[str, object]:

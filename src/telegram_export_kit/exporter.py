@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from telegram_export_kit.export_index import build_criteria_hash
 from telegram_export_kit.gateway import TelegramGateway
 from telegram_export_kit.jsonl import append_jsonl
 from telegram_export_kit.manifest_writer import write_export_manifest
@@ -25,6 +26,7 @@ class ExportResult:
     out_dir: Path
     total_seen: int
     selected: int
+    message_count: int
     written: int
     media_updated: int
     skipped_existing: int
@@ -82,9 +84,28 @@ async def export_chat(
         window_after=options.window_after,
     )
 
+    actual_criteria = build_criteria_hash(
+        chat_id=chat_record.id,
+        target_id=target_sender_id,
+        mode=selection.mode,
+        since=options.since,
+        until=options.until,
+        window_before=options.window_before,
+        window_after=options.window_after,
+    )
+    if options.criteria_hash is not None and options.criteria_hash != actual_criteria:
+        raise ValueError("Export criteria changed since planning; existing data was not changed.")
+
     messages_path = options.out_dir / "messages.jsonl"
     assets_dir = options.out_dir / "assets"
     previous_messages = existing_messages(messages_path) if options.resume else {}
+    for previous_record in previous_messages.values():
+        previous_chat = previous_record.get("chat")
+        if not isinstance(previous_chat, dict) or previous_chat.get("id") != chat_record.id:
+            raise ValueError(
+                "Existing messages have a different or invalid chat; "
+                "use a different output directory."
+            )
     existing_ids = set(previous_messages)
     selected_total = selection.selected_count
 
@@ -105,6 +126,7 @@ async def export_chat(
     if not options.dry_run:
         options.out_dir.mkdir(parents=True, exist_ok=True)
         assets_dir.mkdir(parents=True, exist_ok=True)
+        messages_path.touch(exist_ok=True)
 
     for position, index in enumerate(sorted(selection.selected_indexes), start=1):
         message = messages[index]
@@ -202,6 +224,7 @@ async def export_chat(
         "target_messages": selection.target_count,
     }
 
+    message_count = len(existing_ids) + written
     if not options.dry_run:
         write_export_manifest(
             options.out_dir / "manifest.json",
@@ -210,6 +233,7 @@ async def export_chat(
             target_record=target_record,
             mode=selection.mode,
             stats=stats,
+            message_count=message_count,
         )
 
     _emit(progress, "complete", stats)
@@ -218,6 +242,7 @@ async def export_chat(
         out_dir=options.out_dir,
         total_seen=len(messages),
         selected=selection.selected_count,
+        message_count=message_count,
         written=written,
         media_updated=media_updated,
         skipped_existing=skipped_existing,

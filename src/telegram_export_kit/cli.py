@@ -4,6 +4,7 @@ import asyncio
 import sys
 from collections import Counter
 from collections.abc import Mapping
+from contextlib import nullcontext
 from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Annotated, Any, cast
@@ -35,9 +36,10 @@ from telegram_export_kit.export_index import (
 )
 from telegram_export_kit.export_plan import (
     ExistingExportError,
+    ExportPlanError,
     PathCollisionError,
     plan_export,
-    reset_export_payload,
+    staged_overwrite,
 )
 from telegram_export_kit.exporter import export_chat
 from telegram_export_kit.jsonl import dumps_line
@@ -568,82 +570,89 @@ def export_command(
                 _print_conflicting_exports(exc.entries)
                 console.print("Use --new to keep the existing export and create a sibling path.")
                 raise typer.Exit(1) from exc
+            except ExportPlanError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1) from exc
 
-            if plan.should_reset:
-                reset_export_payload(plan.out_dir)
-
-            options = ExportOptions(
-                chat=chat,
-                sender=sender,
-                out_dir=plan.out_dir,
-                since=since_dt,
-                until=until_dt,
-                timezone=timezone_label,
-                window_before=window_before,
-                window_after=window_after,
-                download_media=not no_media,
-                dry_run=dry_run,
-                resume=plan.resume,
-                export_id=plan.export_id,
-                export_uuid=plan.export_uuid,
-                source=plan.source,
-                path_key=plan.path_key,
-                criteria_hash=plan.criteria_hash,
+            transaction = (
+                staged_overwrite(plan.out_dir) if plan.should_reset else nullcontext(plan.out_dir)
             )
             try:
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TaskProgressColumn(),
-                    TimeElapsedColumn(),
-                    console=console,
-                ) as progress:
-                    scan_task = progress.add_task("Scanning messages", total=None)
-                    write_task: TaskID | None = None
+                with transaction as write_dir:
+                    options = ExportOptions(
+                        chat=chat,
+                        sender=sender,
+                        out_dir=write_dir,
+                        since=since_dt,
+                        until=until_dt,
+                        timezone=timezone_label,
+                        window_before=window_before,
+                        window_after=window_after,
+                        download_media=not no_media,
+                        dry_run=dry_run,
+                        resume=plan.resume,
+                        export_id=plan.export_id,
+                        export_uuid=plan.export_uuid,
+                        source=plan.source,
+                        path_key=plan.path_key,
+                        criteria_hash=plan.criteria_hash,
+                    )
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TaskProgressColumn(),
+                        TimeElapsedColumn(),
+                        console=console,
+                    ) as progress:
+                        scan_task = progress.add_task("Scanning messages", total=None)
+                        write_task: TaskID | None = None
 
-                    def on_progress(event: str, payload: Mapping[str, object]) -> None:
-                        nonlocal write_task
+                        def on_progress(event: str, payload: Mapping[str, object]) -> None:
+                            nonlocal write_task
 
-                        if event == "scan":
-                            progress.update(
-                                scan_task,
-                                description=f"Scanning messages ({payload['seen']})",
-                            )
-                            return
+                            if event == "scan":
+                                progress.update(
+                                    scan_task,
+                                    description=f"Scanning messages ({payload['seen']})",
+                                )
+                                return
 
-                        if event == "selected":
-                            seen = _progress_int(payload, "seen")
-                            selected = _progress_int(payload, "selected")
-                            target_messages = _progress_int(payload, "target_messages")
-                            progress.update(
-                                scan_task,
-                                total=seen,
-                                completed=seen,
-                                description=(
-                                    f"Scanned {seen}; selected {selected}; "
-                                    f"target {target_messages}"
-                                ),
-                            )
-                            write_task = progress.add_task("Writing export", total=selected)
-                            return
+                            if event == "selected":
+                                seen = _progress_int(payload, "seen")
+                                selected = _progress_int(payload, "selected")
+                                target_messages = _progress_int(payload, "target_messages")
+                                progress.update(
+                                    scan_task,
+                                    total=seen,
+                                    completed=seen,
+                                    description=(
+                                        f"Scanned {seen}; selected {selected}; "
+                                        f"target {target_messages}"
+                                    ),
+                                )
+                                write_task = progress.add_task("Writing export", total=selected)
+                                return
 
-                        if write_task is None:
-                            return
+                            if write_task is None:
+                                return
 
-                        if event in {"skip_existing", "dry_run_selected", "write_start"}:
-                            message_id = payload["message_id"]
-                            position = payload["position"]
-                            total = payload["total"]
-                            progress.update(
-                                write_task,
-                                description=f"Writing export #{message_id} ({position}/{total})",
-                            )
+                            if event in {"skip_existing", "dry_run_selected", "write_start"}:
+                                message_id = payload["message_id"]
+                                position = payload["position"]
+                                total = payload["total"]
+                                progress.update(
+                                    write_task,
+                                    description=f"Message #{message_id} ({position}/{total})",
+                                )
 
-                        if event in {"skip_existing", "dry_run_selected", "written"}:
-                            progress.advance(write_task)
+                            if event in {"skip_existing", "dry_run_selected", "written"}:
+                                progress.advance(write_task)
 
-                    result = await export_chat(gateway, options, progress=on_progress)
+                        result = await export_chat(gateway, options, progress=on_progress)
+            except (ExportPlanError, ValueError, OSError) as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1) from exc
             except errors.FloodWaitError as exc:
                 console.print(f"Telegram flood wait: retry after {exc.seconds}s")
                 raise typer.Exit(1) from exc
@@ -653,23 +662,24 @@ def export_command(
                 out,
                 export_id=plan.export_id,
                 export_uuid=plan.export_uuid,
-                path=result.out_dir,
+                path=plan.out_dir,
                 path_key=plan.path_key,
                 criteria_hash=plan.criteria_hash,
                 chat=plan.chat_label,
                 target=plan.target_label,
                 mode=plan.mode,
                 scope=plan.scope,
-                message_count=result.selected,
+                message_count=result.message_count,
             )
 
         console.print(
             {
                 "id": plan.export_id,
-                "out_dir": str(result.out_dir),
+                "out_dir": str(plan.out_dir),
                 "total_seen": result.total_seen,
                 "target_messages": result.target_messages,
                 "selected": result.selected,
+                "message_count": result.message_count,
                 "written": result.written,
                 "media_updated": result.media_updated,
                 "skipped_existing": result.skipped_existing,

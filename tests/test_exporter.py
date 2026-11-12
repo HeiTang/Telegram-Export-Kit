@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from telegram_export_kit.exporter import export_chat
 from telegram_export_kit.gateway import TelegramGateway
 from telegram_export_kit.jsonl import read_jsonl
@@ -247,3 +249,14 @@ async def test_group_export_without_sender_exports_full_chat(tmp_path: Path) -> 
     assert result.target_messages == 0
     assert [row["id"] for row in rows] == list(range(1, 9))
     assert {row["context_kind"] for row in rows} == {"target"}
+
+
+async def test_resume_rejects_messages_from_another_chat(tmp_path: Path) -> None:
+    gateway = FakeGateway(_messages())
+    options = ExportOptions(chat="group", out_dir=tmp_path)
+    await export_chat(gateway, options)
+    before = (tmp_path / "messages.jsonl").read_bytes()
+    gateway.chat.id = 200
+    with pytest.raises(ValueError, match="different or invalid chat"):
+        await export_chat(gateway, options)
+    assert (tmp_path / "messages.jsonl").read_bytes() == before

@@ -43,6 +43,10 @@ def verify_export(path: Path) -> VerifyResult:
     messages_path = path if path.is_file() else path / "messages.jsonl"
     root_dir = messages_path.parent
     issues: list[VerifyIssue] = []
+    if (root_dir / ".overwrite-backup").exists():
+        issues.append(
+            _error("unfinished_overwrite", "recover .overwrite-backup before using this export")
+        )
     records = _read_records(messages_path, issues)
     seen_ids: set[int] = set()
     reply_ids: set[int] = set()
@@ -94,7 +98,7 @@ def verify_export(path: Path) -> VerifyResult:
             missing_reply_count += 1
             issues.append(_warning("missing_reply", f"reply target not exported: {reply_id}"))
 
-    _verify_manifest(root_dir, issues, message_count=len(records))
+    _verify_manifest(root_dir, issues, records=records)
 
     return VerifyResult(
         root_dir=root_dir,
@@ -188,7 +192,9 @@ def _verify_media(
     return asset_count
 
 
-def _verify_manifest(root_dir: Path, issues: list[VerifyIssue], *, message_count: int) -> None:
+def _verify_manifest(
+    root_dir: Path, issues: list[VerifyIssue], *, records: list[_JsonlRow]
+) -> None:
     manifest_path = root_dir / "manifest.json"
     if not manifest_path.exists():
         issues.append(_warning("missing_manifest", f"manifest.json not found: {manifest_path}"))
@@ -236,6 +242,13 @@ def _verify_manifest(root_dir: Path, issues: list[VerifyIssue], *, message_count
     chat = payload.get("chat")
     if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
         issues.append(_error("manifest_invalid_chat", "manifest chat.id must be an integer"))
+    else:
+        for row in records:
+            row_chat = row.record.get("chat")
+            if not isinstance(row_chat, dict) or row_chat.get("id") != chat["id"]:
+                issues.append(
+                    _error("chat_mismatch", "message chat.id differs from manifest", line=row.line)
+                )
 
     stats = payload.get("stats")
     if not isinstance(stats, dict):
@@ -246,11 +259,11 @@ def _verify_manifest(root_dir: Path, issues: list[VerifyIssue], *, message_count
             issues.append(
                 _error("manifest_invalid_stats", "manifest stats.selected must be an integer")
             )
-        elif selected != message_count:
+        elif selected != len(records):
             issues.append(
                 _error(
                     "manifest_stats_mismatch",
-                    f"manifest stats.selected {selected} differs from JSONL count {message_count}",
+                    f"manifest stats.selected {selected} differs from JSONL count {len(records)}",
                 )
             )
 

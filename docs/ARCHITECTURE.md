@@ -139,7 +139,7 @@ For the same `criteria_hash`:
 
 - default: fail with the existing ID and path
 - `--update`: reuse ID/path and resume non-destructively
-- `--overwrite`: reuse ID/path and rebuild payload destructively
+- `--overwrite`: reuse ID/path, verify staged payload, then replace with rollback on switch errors
 - `--new`: create a new ID and sibling path
 
 For the same `path_key` but different `criteria_hash`:
@@ -173,6 +173,15 @@ Current `--update` behavior is idempotent resume:
 - fill missing media when possible
 - preserve the existing export ID
 - record another run in `manifest.json`
+
+Top-level `stats.selected` counts saved messages; per-run `stats.selected`
+counts that scan's selection. Empty exports include an empty `messages.jsonl`.
+The planner also checks the actual destination's manifest before writing, so
+`--flat` cannot merge exports from different chats or criteria. Verification
+checks every message's chat ID against the manifest.
+
+Overwrite recovery and the single-writer limitation are documented in
+[EXPORT_MODEL.md](EXPORT_MODEL.md#overwrite-recovery).
 
 Bounded `--date`, `--start-date`, and `--end-date` exports use the same model:
 the manifest records the criteria, and updates are only considered the same
