@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import typer
+from rich.text import Text
 from typer.testing import CliRunner
 
 from telegram_export_kit import cli
@@ -194,7 +195,9 @@ def test_export_command_rejects_multiple_existing_export_actions(
     )
 
     assert result.exit_code != 0
-    assert "Use only one of: --update, --overwrite, or --new." in result.output
+    assert "Use only one of: --update, --overwrite, or --new." in Text.from_ansi(
+        result.output
+    ).plain
 
 
 def test_export_command_existing_export_error_includes_id_and_path(
@@ -285,7 +288,9 @@ def test_render_rejects_multiple_input_selectors(tmp_path: Path) -> None:
     )
 
     assert result.exit_code != 0
-    assert "Provide exactly one of: INPUT_PATH, --latest, or --export." in result.output
+    assert "Provide exactly one of: INPUT_PATH, --latest, or --export." in Text.from_ansi(
+        result.output
+    ).plain
 
 
 def _write_renderable_export(root: Path, *, export_id: str) -> Path:
