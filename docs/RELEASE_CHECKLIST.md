@@ -4,6 +4,10 @@ Run this before tagging an RC or handing the tool to someone else.
 
 ## Required Gates
 
+GitHub Actions runs pytest, Ruff, mypy, and the package build on Python 3.13
+for pull requests targeting `main` and pushes to `main`. Dependencies are
+installed from `uv.lock` with `uv sync --locked`; no Telegram credentials are needed.
+
 ```bash
 uv run pytest
 uv run ruff check .
